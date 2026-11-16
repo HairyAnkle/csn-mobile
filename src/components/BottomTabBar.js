@@ -15,8 +15,9 @@ const TAB_ITEMS = [
   { key: 'support',   labelKey: 'tabSupport', label: 'Support',  icon: 'help-circle-outline',   iconActive: 'help-circle' },
 ];
 
-export function BottomTabBar({ current, onPress, unread }) {
-  const { isDark, colors, t } = useApp();
+export function BottomTabBar({ current, onPress, unread, isTeacher: isTeacherProp }) {
+  const { isDark, colors, t, isTeacher: contextIsTeacher } = useApp();
+  const isTeacher = typeof isTeacherProp === 'boolean' ? isTeacherProp : Boolean(contextIsTeacher);
   const insets = useSafeAreaInsets();
   const bottomInset = Math.max(insets.bottom, 6);
   const barHeight = 52 + bottomInset;
@@ -34,7 +35,11 @@ export function BottomTabBar({ current, onPress, unread }) {
     >
       {TAB_ITEMS.map((item) => {
         const active = current === item.key;
-        const displayLabel = t(item.labelKey) || item.label;
+        const isStudentTab = isTeacher && item.key === 'medical';
+        const displayLabel = isStudentTab ? (t('tabStudents') || 'Students') : (t(item.labelKey) || item.label);
+        const iconName = isStudentTab
+          ? (active ? 'people' : 'people-outline')
+          : (active ? item.iconActive : item.icon);
         return (
           <Pressable
             key={item.key}
@@ -46,7 +51,7 @@ export function BottomTabBar({ current, onPress, unread }) {
           >
             <View style={{ position: 'relative' }}>
               <Ionicons
-                name={active ? item.iconActive : item.icon}
+                name={iconName}
                 size={22}
                 color={active ? colors.brand : colors.muted}
               />

@@ -5,12 +5,13 @@ import { NEARBY_EMERGENCY_CENTERS } from '../constants/data';
  * complete with custom markers, popups, live OSRM road routing between user & selected center,
  * and two-way postMessage bridge for Web <iframe> and Native <WebView>.
  */
-export function buildLeafletMapHtml({ userLat, userLng, isStreaming, childName, centers, selectedId }) {
+export function buildLeafletMapHtml({ userLat, userLng, isStreaming, childName, locationName, centers, selectedId }) {
   const payload = JSON.stringify({
     userLat,
     userLng,
     isStreaming,
     childName: childName || 'Your GPS Position',
+    locationName: locationName || 'Parañaque City',
     centers: centers || NEARBY_EMERGENCY_CENTERS,
     selectedId: selectedId || (centers && centers[0] && centers[0].id) || 'csn-center',
   });
@@ -177,7 +178,7 @@ export function buildLeafletMapHtml({ userLat, userLng, isStreaming, childName, 
       } else {
         userMarker = L.marker([STATE.userLat, STATE.userLng], { icon: icon, zIndexOffset: 1000 })
           .addTo(map)
-          .bindPopup('<b>' + STATE.childName + '</b><br/>Live GPS: ' + STATE.userLat.toFixed(5) + ', ' + STATE.userLng.toFixed(5));
+          .bindPopup('<b>' + STATE.childName + '</b><br/>📍 ' + (STATE.locationName || 'Parañaque City'));
       }
 
       if (accuracyCircle) {
@@ -316,6 +317,18 @@ export function buildLeafletMapHtml({ userLat, userLng, isStreaming, childName, 
         const cLat = cmd.center.latitude != null ? cmd.center.latitude : cmd.center.lat;
         const cLng = cmd.center.longitude != null ? cmd.center.longitude : cmd.center.lng;
         map.flyTo([cLat, cLng], 16, { duration: 0.7 });
+        if (markersById[cmd.center.id]) {
+          markersById[cmd.center.id].openPopup();
+        }
+      } else if (cmd.type === 'NAVIGATE_CENTER' && cmd.center) {
+        STATE.selectedId = cmd.center.id;
+        renderCenters();
+        drawRouteToSelected();
+        const cLat = cmd.center.latitude != null ? cmd.center.latitude : cmd.center.lat;
+        const cLng = cmd.center.longitude != null ? cmd.center.longitude : cmd.center.lng;
+        if (cLat != null && cLng != null) {
+          map.fitBounds([[STATE.userLat, STATE.userLng], [cLat, cLng]], { padding: [52, 52], maxZoom: 16 });
+        }
         if (markersById[cmd.center.id]) {
           markersById[cmd.center.id].openPopup();
         }

@@ -13,14 +13,15 @@ import {
 
 import { useApp } from '../context/AppContext';
 import { BottomTabBar } from '../components/BottomTabBar';
+import { InteractiveLocationMap } from '../components/InteractiveLocationMap';
 import { PrimaryButton } from '../components/PrimaryButton';
 import { StatusBadge } from '../components/StatusBadge';
-import { EMERGENCY_TYPES } from '../constants/data';
+import { getEmergencyTypes } from '../constants/data';
 import { api } from '../services/api';
 import { C } from '../theme/colors';
 import { styles } from '../theme/styles';
 import { formatDateTime } from '../utils/format';
-import { openExternalMap } from '../utils/geo';
+import { resolveParanaqueLocationName } from '../utils/geo';
 
 /* ============================================================================
  * SCREEN 8 — ALERT HISTORY (Table 1.8) & SCREEN 9 — NOTIFICATIONS INBOX (Table 1.9)
@@ -43,7 +44,7 @@ async function fetchHistoryData(token) {
 }
 
 export function AlertHistoryScreen({ token, child, go, initialTab, showToast, seenIds, onMarkRead, dismissedIds, onDismissAnnouncement, unread }) {
-  const { isDark, colors, t } = useApp();
+  const { isDark, colors, t, lang } = useApp();
   const [tab, setTab]                     = useState(initialTab || 'alerts');
   const [alerts, setAlerts]               = useState([]);
   const [announcements, setAnnouncements] = useState([]);
@@ -51,6 +52,7 @@ export function AlertHistoryScreen({ token, child, go, initialTab, showToast, se
   const [error, setError]                 = useState('');
   const [expandedAlertId, setExpandedAlertId] = useState(null);
   const [selectedAnnouncement, setSelectedAnnouncement] = useState(null);
+  const [mapAlert, setMapAlert]           = useState(null);
 
   // Sync the active tab when navigated here with a different initialTab (adjust state during render)
   const [prevInitialTab, setPrevInitialTab] = useState(initialTab);
@@ -90,13 +92,14 @@ export function AlertHistoryScreen({ token, child, go, initialTab, showToast, se
     };
   }, [token, applyHistory]);
 
+  const emergencyTypes = getEmergencyTypes(lang);
   const typeInfo = (key) =>
-    EMERGENCY_TYPES.find((item) => item.key === key) || { label: 'General Emergency', icon: 'warning' };
+    emergencyTypes.find((item) => item.key === key) || { label: lang === 'Filipino' ? 'Pangkalahatang Emergency' : 'General Emergency', icon: 'warning' };
 
   const statusBorderColor = (s) =>
     s === 'pending'    ? colors.amber :
     s === 'responding' ? colors.brand :
-    s === 'resolved'   ? colors.success :
+    (s === 'arrived' || s === 'resolved') ? colors.success :
     colors.muted;
 
   const visibleAnnouncements = announcements.filter((n) => !dismissedIds.includes(n.id));
@@ -176,14 +179,19 @@ export function AlertHistoryScreen({ token, child, go, initialTab, showToast, se
               const info = typeInfo(a.type);
               const isExpanded = expandedAlertId === a.id;
               const urgency = a.urgency || 'high';
-              const msg = a.message || a.guardian_notes || 'No custom situation message provided.';
+              const msg = a.message || a.guardian_notes || (lang === 'Filipino' ? 'Walang karagdagang mensahe ng sitwasyon.' : 'No custom situation message provided.');
               const hasCoords = a.lat != null && a.lng != null;
+              const friendlyLocation = a.facility_room
+                ? `CSN Center Parañaque — ${a.facility_room}`
+                : (a.location && !String(a.location).startsWith('Live GPS')
+                    ? a.location
+                    : (hasCoords ? resolveParanaqueLocationName(a.lat, a.lng) : t('locationDisabledText')));
               const notifiedList = [
                 'Parañaque CSN Center Admin',
                 urgency === 'high' ? 'Parañaque DRRMO / 911 Ambulance' : null,
                 child && child.emergency_contact_name
                   ? `${child.emergency_contact_name} (Backup Contact)`
-                  : 'Registered Emergency Contact',
+                  : (lang === 'Filipino' ? 'Nakarehistrong Emergency Contact' : 'Registered Emergency Contact'),
                 a.responder ? (a.responder.unit || a.responder.name) : null,
               ].filter(Boolean);
 
@@ -230,13 +238,15 @@ export function AlertHistoryScreen({ token, child, go, initialTab, showToast, se
                             color: urgency === 'high' ? C.criticalDark : C.amberDark,
                           }}
                         >
-                          {urgency === 'high' ? '⚡ HIGH URGENCY' : '• LOW URGENCY'}
+                          {urgency === 'high'
+                            ? (lang === 'Filipino' ? '⚡ MATAAS NA URGENCY' : '⚡ HIGH URGENCY')
+                            : (lang === 'Filipino' ? '• MABABANG URGENCY' : '• LOW URGENCY')}
                         </Text>
                       </View>
 
                       <View style={styles.row}>
                         <Text style={{ color: colors.brand, fontSize: 12, fontWeight: '700', marginRight: 4 }}>
-                          {isExpanded ? 'Hide Details' : 'View Details'}
+                          {isExpanded ? t('hideDetails') : t('viewDetails')}
                         </Text>
                         <Ionicons
                           name={isExpanded ? 'chevron-up' : 'chevron-down'}
@@ -250,31 +260,41 @@ export function AlertHistoryScreen({ token, child, go, initialTab, showToast, se
                   {/* Expandable Detail View (Table 1.8: submitted message, location snapshot, contacts notified) */}
                   {isExpanded && (
                     <View style={[styles.histDetailBox, isDark && { backgroundColor: colors.bg, borderColor: colors.border }]}>
+                      {(a.child?.name || a.facility_room || a.reported_by_role === 'teacher') && (
+                        <View style={{ marginBottom: 10 }}>
+                          <Text style={[styles.histDetailLabel, isDark && { color: colors.muted }]}>
+                            {lang === 'Filipino' ? 'DETALYE NG ESTUDYANTE AT LOKASYON' : 'STUDENT & LOCATION DETAILS'}
+                          </Text>
+                          <Text style={[styles.histDetailValue, isDark && { color: colors.text }]}>
+                            {a.child?.name ? `${a.child.name} ` : ''}
+                            {a.facility_room ? `• CSN Center — ${a.facility_room}` : ''}
+                            {a.reported_by_role === 'teacher' ? ` (${lang === 'Filipino' ? 'Iniulat ni' : 'Reported by'} ${a.reported_by_name || 'CSN Teacher'})` : ''}
+                          </Text>
+                        </View>
+                      )}
                       {/* Submitted Message */}
                       <View style={{ marginBottom: 10 }}>
-                        <Text style={[styles.histDetailLabel, isDark && { color: colors.muted }]}>SUBMITTED SITUATION MESSAGE</Text>
+                        <Text style={[styles.histDetailLabel, isDark && { color: colors.muted }]}>{t('submittedMessageLabel')}</Text>
                         <Text style={[styles.histDetailValue, isDark && { color: colors.text }]}>{msg}</Text>
                       </View>
 
-                      {/* Location Snapshot */}
+                      {/* Location Snapshot (User-Friendly Street/Barangay Name) */}
                       <View style={{ marginBottom: 10 }}>
-                        <Text style={[styles.histDetailLabel, isDark && { color: colors.muted }]}>GPS LOCATION SNAPSHOT</Text>
-                        <View style={[styles.row, { justifyContent: 'space-between', marginTop: 2 }]}>
-                          <View style={styles.row}>
+                        <Text style={[styles.histDetailLabel, isDark && { color: colors.muted }]}>{t('locationSnapshotLabel')}</Text>
+                        <View style={[styles.row, { justifyContent: 'space-between', marginTop: 2, gap: 8 }]}>
+                          <View style={[styles.row, { flex: 1 }]}>
                             <Ionicons name="location" size={16} color={colors.brand} style={{ marginRight: 6 }} />
-                            <Text style={[styles.histDetailValue, { fontVariant: ['tabular-nums'] }, isDark && { color: colors.text }]}>
-                              {hasCoords
-                                ? `${Number(a.lat).toFixed(5)}° N, ${Number(a.lng).toFixed(5)}° E`
-                                : 'Location sharing was disabled'}
+                            <Text style={[styles.histDetailValue, { flex: 1 }, isDark && { color: colors.text }]}>
+                              {friendlyLocation}
                             </Text>
                           </View>
                           {hasCoords && (
                             <Pressable
-                              onPress={() => openExternalMap(Number(a.lat), Number(a.lng), info.label)}
+                              onPress={() => setMapAlert({ ...a, friendlyLocation, label: info.label })}
                               accessibilityRole="button"
                               style={styles.mapQuickLink}
                             >
-                              <Text style={[styles.mapQuickLinkText, { color: colors.brand }]}>Open Map ↗</Text>
+                              <Text style={[styles.mapQuickLinkText, { color: colors.brand }]}>{t('openMapBtn')}</Text>
                             </Pressable>
                           )}
                         </View>
@@ -282,7 +302,7 @@ export function AlertHistoryScreen({ token, child, go, initialTab, showToast, se
 
                       {/* Contacts & Responders Notified */}
                       <View>
-                        <Text style={[styles.histDetailLabel, isDark && { color: colors.muted }]}>CONTACTS & RESPONDERS NOTIFIED</Text>
+                        <Text style={[styles.histDetailLabel, isDark && { color: colors.muted }]}>{t('contactsNotifiedLabel')}</Text>
                         <View style={[styles.chipWrap, { marginTop: 6, marginBottom: 0 }]}>
                           {notifiedList.map((contactName) => (
                             <View key={contactName} style={[styles.notifiedChip, isDark && { backgroundColor: colors.card, borderColor: colors.border }]}>
@@ -365,7 +385,7 @@ export function AlertHistoryScreen({ token, child, go, initialTab, showToast, se
                     <View style={[styles.row, { justifyContent: 'space-between', marginTop: 10 }]}>
                       <Text style={[styles.histCardMeta, isDark && { color: colors.muted }]}>{formatDateTime(n.created_at)}</Text>
                       <Text style={{ color: colors.brand, fontSize: 12, fontWeight: '700' }}>
-                        Tap to read full notice →
+                        {t('tapToReadNotice')}
                       </Text>
                     </View>
                   </Pressable>
@@ -401,17 +421,17 @@ export function AlertHistoryScreen({ token, child, go, initialTab, showToast, se
                   </Text>
                 </View>
                 <PrimaryButton
-                  title="Done Reading"
+                  title={t('doneReadingBtn')}
                   tone="brand"
                   onPress={() => setSelectedAnnouncement(null)}
                 />
                 <PrimaryButton
-                  title="Dismiss from Inbox"
+                  title={t('dismissFromInboxBtn')}
                   tone="ghost"
                   onPress={() => {
                     onDismissAnnouncement(selectedAnnouncement.id);
                     setSelectedAnnouncement(null);
-                    showToast('Notification removed from Inbox.');
+                    showToast(lang === 'Filipino' ? 'Inalis ang abiso sa Inbox.' : 'Notification removed from Inbox.');
                   }}
                   style={{ marginTop: 8 }}
                 />
@@ -419,6 +439,50 @@ export function AlertHistoryScreen({ token, child, go, initialTab, showToast, se
             )}
           </View>
         </View>
+      </Modal>
+
+      {/* In-App OpenStreetMap + Leaflet Location Snapshot Modal */}
+      <Modal visible={!!mapAlert} animationType="slide" onRequestClose={() => setMapAlert(null)}>
+        <SafeAreaView style={[styles.flex, { backgroundColor: colors.bg }]}>
+          <View
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              paddingHorizontal: 16,
+              paddingVertical: 12,
+              backgroundColor: C.brand,
+            }}
+          >
+            <View style={{ flex: 1, marginRight: 10 }}>
+              <Text style={{ color: C.white, fontSize: 16, fontWeight: '800' }} numberOfLines={1}>
+                {mapAlert ? mapAlert.label : 'Alert Location'}
+              </Text>
+              <Text style={{ color: '#BAE6FD', fontSize: 12, marginTop: 2 }} numberOfLines={1}>
+                {mapAlert ? mapAlert.friendlyLocation : ''}
+              </Text>
+            </View>
+            <Pressable
+              onPress={() => setMapAlert(null)}
+              style={styles.headerActionBtn}
+              accessibilityRole="button"
+              accessibilityLabel="Close map"
+            >
+              <Ionicons name="close" size={18} color={C.white} />
+            </Pressable>
+          </View>
+
+          <ScrollView contentContainerStyle={{ padding: 16 }}>
+            {mapAlert && (
+              <InteractiveLocationMap
+                coords={{ latitude: Number(mapAlert.lat), longitude: Number(mapAlert.lng) }}
+                isStreaming={false}
+                childName={mapAlert.child?.name || mapAlert.label}
+                locationName={mapAlert.friendlyLocation}
+              />
+            )}
+          </ScrollView>
+        </SafeAreaView>
       </Modal>
 
       <BottomTabBar current={tab === 'inbox' ? 'inbox' : 'history'} onPress={(k) => go(k)} unread={unread} />

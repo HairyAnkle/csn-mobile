@@ -82,7 +82,7 @@ export function SettingsScreen({ guardian, go, onLogout, showToast, unread }) {
                 {t('appearanceLabel')}
               </Text>
               <Text style={[{ fontSize: 12, marginTop: 2 }, { color: colors.textSec }]}>
-                {isDark ? 'Dark Mode active (reduces glare at night)' : t('appearanceSub')}
+                {isDark ? t('appearanceSubDark') : t('appearanceSub')}
               </Text>
             </View>
             <View style={[styles.toggleTrack, isDark && styles.toggleTrackActive]}>
@@ -145,9 +145,7 @@ export function SettingsScreen({ guardian, go, onLogout, showToast, unread }) {
                 {t('pushLabel')}
               </Text>
               <Text style={{ color: colors.textSec, fontSize: 12, marginTop: 2 }}>
-                {pushOn
-                  ? 'Receiving responder ETA updates & CSN drill alerts'
-                  : 'Push alerts are currently muted'}
+                {pushOn ? t('pushSubOn') : t('pushSubOff')}
               </Text>
             </View>
             <View style={[styles.toggleTrack, pushOn && styles.toggleTrackActive]}>
@@ -171,7 +169,7 @@ export function SettingsScreen({ guardian, go, onLogout, showToast, unread }) {
                   {t('supportTitle')}
                 </Text>
                 <Text style={[{ fontSize: 12 }, { color: colors.textSec }]}>
-                  FAQs, Safety Resources, Video Tutorials & Live Chat
+                  {t('supportCardSub')}
                 </Text>
               </View>
             </View>

@@ -39,7 +39,7 @@ export async function api(path, { method = 'GET', body, token } = {}) {
     });
   } catch (e) {
     console.warn(`[API] Failed to fetch ${baseUrl}${path}:`, e);
-    if (IS_DEV) {
+    if (IS_DEV && !path.startsWith('/auth/')) {
       console.log(`[DEV TEST MODE] Backend unreachable at ${baseUrl}. Serving simulated response for ${path}`);
       return getDevMockResponse(path, { method, body });
     }
@@ -52,7 +52,7 @@ export async function api(path, { method = 'GET', body, token } = {}) {
     /* empty or non-JSON body */
   }
   if (!res.ok) {
-    if (IS_DEV && (res.status >= 500 || (res.status === 404 && path.startsWith('/support/messages')))) {
+    if (IS_DEV && !path.startsWith('/auth/') && (res.status >= 500 || (res.status === 404 && path.startsWith('/support/messages')))) {
       console.log(`[DEV TEST MODE] Fallback for ${path} (${res.status})`);
       return getDevMockResponse(path, { method, body });
     }

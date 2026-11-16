@@ -1,7 +1,8 @@
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
+  ActivityIndicator,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -9,6 +10,7 @@ import {
   ScrollView,
   StatusBar,
   Text,
+  TextInput,
   View,
 } from 'react-native';
 
@@ -21,13 +23,56 @@ import { COMMUNICATION_TAGS, DISABILITY_CHIPS } from '../constants/data';
 import { api } from '../services/api';
 import { C } from '../theme/colors';
 import { styles } from '../theme/styles';
+import { callEmergencyNumber } from '../utils/device';
 
 /* ============================================================================
  * SCREEN 7 — MEDICAL & PERSONAL INFORMATION (Table 1.7)
+ * Also renders CSN Student (Special Child) Profiles Directory for Teacher users
  * ========================================================================== */
 
-export function MedicalProfileScreen({ child, token, go, onSaved, showToast, unread }) {
-  const { isDark, colors, t, lang } = useApp();
+export function MedicalProfileScreen({
+  guardian,
+  child,
+  childrenList = [],
+  token,
+  go,
+  onSaved,
+  onTriggerForChild,
+  showToast,
+  unread,
+}) {
+  const { isDark, colors, t, lang, isTeacher: contextIsTeacher } = useApp();
+  const isTeacher = Boolean((guardian && guardian.role === 'teacher') || contextIsTeacher);
+
+  const [students, setStudents]               = useState(childrenList);
+  const [loadingStudents, setLoadingStudents] = useState(false);
+  const [studentQuery, setStudentQuery]       = useState('');
+  const [selectedStudent, setSelectedStudent] = useState(null);
+
+  useEffect(() => {
+    setStudents(childrenList);
+  }, [childrenList]);
+
+  const loadStudents = useCallback(async () => {
+    if (!isTeacher || !token) return;
+    setLoadingStudents(true);
+    try {
+      const data = await api('/children', { token });
+      if (data && Array.isArray(data.children)) {
+        setStudents(data.children);
+      }
+    } catch {
+      // Keep cached list
+    } finally {
+      setLoadingStudents(false);
+    }
+  }, [isTeacher, token]);
+
+  useEffect(() => {
+    if (isTeacher) {
+      loadStudents();
+    }
+  }, [isTeacher, loadStudents]);
   const getInitialForm = (c) => ({
     name: c?.name || '',
     age: c && c.age != null ? String(c.age) : '',
@@ -107,6 +152,235 @@ export function MedicalProfileScreen({ child, token, go, onSaved, showToast, unr
     });
   };
 
+  if (isTeacher) {
+    const q = studentQuery.trim().toLowerCase();
+    const filteredStudents = students.filter((s) => {
+      if (!q) return true;
+      return (
+        (s.name || '').toLowerCase().includes(q) ||
+        (s.disability || s.condition || '').toLowerCase().includes(q) ||
+        (s.allergies || '').toLowerCase().includes(q) ||
+        (s.guardian_name || '').toLowerCase().includes(q)
+      );
+    });
+
+    return (
+      <SafeAreaView style={[styles.flex, { backgroundColor: colors.bg }]} edges={['top', 'left', 'right']}>
+        <StatusBar barStyle="light-content" backgroundColor={C.brand} />
+
+        <View style={[styles.innerHeader, styles.row, { justifyContent: 'space-between' }]}>
+          <Text style={styles.innerHeaderTitle} accessibilityRole="header">
+            {t('teacherStudentsTitle')}
+          </Text>
+          <Pressable onPress={loadStudents} style={styles.headerActionBtn} accessibilityLabel="Refresh student list">
+            <Ionicons name="refresh" size={16} color={C.white} style={{ marginRight: 4 }} />
+            <Text style={{ color: C.white, fontSize: 12, fontWeight: '700' }}>{t('refreshBtn')}</Text>
+          </Pressable>
+        </View>
+
+        <ScrollView contentContainerStyle={styles.medScroll} showsVerticalScrollIndicator={false}>
+          <SectionCard style={{ marginBottom: 14 }}>
+            <Text style={{ color: colors.text, fontSize: 15, fontWeight: '800', marginBottom: 4 }}>
+              {t('teacherStudentsCountLabel')} ({students.length})
+            </Text>
+            <Text style={{ color: colors.textSec, fontSize: 12, marginBottom: 10 }}>
+              {t('teacherStudentsHint')}
+            </Text>
+            <View
+              style={[
+                styles.inputWrap,
+                { minHeight: 44 },
+                isDark && { backgroundColor: colors.bg, borderColor: colors.border },
+              ]}
+            >
+              <Ionicons name="search-outline" size={18} color={colors.muted} style={{ marginRight: 8 }} />
+              <TextInput
+                value={studentQuery}
+                onChangeText={setStudentQuery}
+                placeholder={lang === 'Filipino' ? 'Hanapin ang pangalan, kondisyon, o magulang...' : 'Search student name, condition, or guardian...'}
+                placeholderTextColor={colors.muted}
+                style={[styles.inputInner, { fontSize: 14, color: colors.text }]}
+              />
+            </View>
+          </SectionCard>
+
+          {loadingStudents && <ActivityIndicator color={colors.brand} style={{ marginVertical: 16 }} />}
+
+          {!loadingStudents && filteredStudents.length === 0 ? (
+            <View style={styles.emptyBox}>
+              <Ionicons name="people-outline" size={42} color={colors.muted} />
+              <Text style={[styles.emptyText, isDark && { color: colors.textSec }]}>
+                No Special Child profiles found.
+              </Text>
+            </View>
+          ) : (
+            filteredStudents.map((student) => {
+              const initials = (student.name || 'SC')
+                .split(' ')
+                .map((w) => w[0])
+                .join('')
+                .toUpperCase()
+                .slice(0, 2);
+
+              return (
+                <Pressable
+                  key={student.id}
+                  onPress={() => setSelectedStudent(student)}
+                  style={[
+                    styles.facilityCard,
+                    isDark && { backgroundColor: colors.card, borderColor: colors.border },
+                  ]}
+                >
+                  <View style={[styles.row, { alignItems: 'flex-start' }]}>
+                    <View
+                      style={[
+                        styles.childAvatar,
+                        { backgroundColor: C.brand, borderColor: C.brandLight, marginRight: 12 },
+                      ]}
+                    >
+                      <Text style={styles.childAvatarText}>{initials}</Text>
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <View style={[styles.row, { justifyContent: 'space-between', marginBottom: 4 }]}>
+                        <Text style={{ color: colors.text, fontSize: 16, fontWeight: '800', flex: 1 }}>
+                          {student.name}
+                        </Text>
+                        <Text style={{ color: colors.muted, fontSize: 12, fontWeight: '700' }}>
+                          {student.age != null ? `${student.age} yrs` : ''}
+                        </Text>
+                      </View>
+                      <View style={[styles.disabilityChip, { marginBottom: 6 }, isDark && { backgroundColor: colors.brandLight }]}>
+                        <Text style={[styles.disabilityChipText, isDark && { color: colors.brand }]}>
+                          {student.disability || student.condition || 'Special Needs'}
+                        </Text>
+                      </View>
+                      {!!student.allergies && student.allergies !== 'None reported' && (
+                        <Text style={{ color: C.criticalDark, fontSize: 12, fontWeight: '700', marginBottom: 2 }}>
+                          Allergies: {student.allergies}
+                        </Text>
+                      )}
+                      <Text style={{ color: colors.textSec, fontSize: 12 }} numberOfLines={2}>
+                        {student.communication_notes || 'Tap to view full medical, medication & guardian contact details'}
+                      </Text>
+                    </View>
+                  </View>
+                </Pressable>
+              );
+            })
+          )}
+        </ScrollView>
+
+        {/* Student Detail Modal */}
+        <Modal
+          visible={!!selectedStudent}
+          transparent
+          animationType="slide"
+          onRequestClose={() => setSelectedStudent(null)}
+        >
+          <View style={styles.modalBackdrop}>
+            <ScrollView contentContainerStyle={{ flexGrow: 1, justifyContent: 'flex-end' }}>
+              <View style={[styles.modalSheet, isDark && { backgroundColor: colors.card }]}>
+                <View style={styles.modalHandle} />
+                {selectedStudent && (
+                  <>
+                    <View style={[styles.row, { justifyContent: 'space-between', marginBottom: 10 }]}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={[styles.modalTitle, { textAlign: 'left', marginBottom: 2 }, isDark && { color: colors.text }]}>
+                          {selectedStudent.name}
+                        </Text>
+                        <Text style={{ color: colors.brand, fontSize: 13, fontWeight: '700' }}>
+                          {selectedStudent.disability || selectedStudent.condition}
+                          {selectedStudent.age != null ? ` • ${selectedStudent.age} yrs old` : ''}
+                        </Text>
+                      </View>
+                      <Pressable onPress={() => setSelectedStudent(null)} style={styles.backBtn}>
+                        <Ionicons name="close" size={24} color={C.muted} />
+                      </Pressable>
+                    </View>
+
+                    <View
+                      style={{
+                        backgroundColor: isDark ? colors.bg : C.bg,
+                        borderRadius: 14,
+                        padding: 14,
+                        marginBottom: 14,
+                        gap: 8,
+                        borderWidth: 1,
+                        borderColor: colors.border,
+                      }}
+                    >
+                      <View>
+                        <Text style={styles.histDetailLabel}>{lang === 'Filipino' ? 'MGA ALERDYE' : 'ALLERGIES'}</Text>
+                        <Text style={[styles.histDetailValue, isDark && { color: colors.text }]}>
+                          {selectedStudent.allergies || (lang === 'Filipino' ? 'Walang naiulat' : 'None reported')}
+                        </Text>
+                      </View>
+                      <View>
+                        <Text style={styles.histDetailLabel}>{lang === 'Filipino' ? 'MGA GAMOT' : 'MEDICATIONS'}</Text>
+                        <Text style={[styles.histDetailValue, isDark && { color: colors.text }]}>
+                          {selectedStudent.medications || (lang === 'Filipino' ? 'Walang naitala' : 'None recorded')}
+                        </Text>
+                      </View>
+                      <View>
+                        <Text style={styles.histDetailLabel}>{lang === 'Filipino' ? 'TALA SA KOMUNIKASYON AT PAGPAPAKALMA' : 'COMMUNICATION & CALMING NOTES'}</Text>
+                        <Text style={[styles.histDetailValue, isDark && { color: colors.text }]}>
+                          {selectedStudent.communication_notes || (lang === 'Filipino' ? 'Walang espesipikong tala.' : 'No specific communication notes recorded.')}
+                        </Text>
+                      </View>
+                      <View>
+                        <Text style={styles.histDetailLabel}>{lang === 'Filipino' ? 'MAGULANG / TAGAPAG-ALAGA AT CONTACT' : 'PARENT / GUARDIAN & EMERGENCY CONTACT'}</Text>
+                        <Text style={[styles.histDetailValue, isDark && { color: colors.text }]}>
+                          {selectedStudent.guardian_name || (lang === 'Filipino' ? 'Tagapag-alaga' : 'Guardian')} • {selectedStudent.guardian_phone || selectedStudent.emergency_contact_phone || (lang === 'Filipino' ? 'Walang numero' : 'No phone')}
+                        </Text>
+                        {!!selectedStudent.emergency_contact_phone && (
+                          <Text style={{ color: colors.textSec, fontSize: 12, marginTop: 2 }}>
+                            Backup: {selectedStudent.emergency_contact_name || 'Contact'} ({selectedStudent.emergency_contact_phone})
+                          </Text>
+                        )}
+                      </View>
+                    </View>
+
+                    {!!(selectedStudent.guardian_phone || selectedStudent.emergency_contact_phone) && (
+                      <PrimaryButton
+                        title={`${lang === 'Filipino' ? 'Tawagan ang Magulang' : 'Call Guardian'} (${selectedStudent.guardian_phone || selectedStudent.emergency_contact_phone})`}
+                        tone="outline"
+                        icon="call-outline"
+                        onPress={() => callEmergencyNumber(selectedStudent.guardian_phone || selectedStudent.emergency_contact_phone)}
+                        style={{ marginBottom: 10 }}
+                      />
+                    )}
+
+                    {onTriggerForChild && (
+                      <PrimaryButton
+                        title={lang === 'Filipino' ? 'Magpadala ng CSN Alert para sa Batang Ito' : 'Trigger CSN Alert for This Student'}
+                        tone="critical"
+                        icon="warning"
+                        onPress={() => {
+                          const target = selectedStudent;
+                          setSelectedStudent(null);
+                          onTriggerForChild(target);
+                        }}
+                      />
+                    )}
+
+                    <PrimaryButton
+                      title={t('closeBtn')}
+                      tone="ghost"
+                      onPress={() => setSelectedStudent(null)}
+                      style={{ marginTop: 8 }}
+                    />
+                  </>
+                )}
+              </View>
+            </ScrollView>
+          </View>
+        </Modal>
+
+        <BottomTabBar current="medical" onPress={(k) => go(k)} unread={unread} isTeacher />
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView style={[styles.flex, { backgroundColor: colors.bg }]} edges={['top', 'left', 'right']}>
       <StatusBar barStyle="light-content" backgroundColor={C.brand} />
@@ -123,7 +397,7 @@ export function MedicalProfileScreen({ child, token, go, onSaved, showToast, unr
           <Text style={[styles.sectionHeading, isDark && { color: colors.brand }]}>{t('childClassification')}</Text>
           <SectionCard>
             <Field
-              label="Child's Full Name"
+              label={t('childFullNameLabel')}
               value={form.name}
               onChangeText={set('name')}
               error={errors.name}
@@ -132,7 +406,7 @@ export function MedicalProfileScreen({ child, token, go, onSaved, showToast, unr
               placeholder="e.g. Mateo Garcia"
             />
             <Field
-              label="Age (Years)"
+              label={t('childAgeLabel')}
               value={form.age}
               onChangeText={set('age')}
               error={errors.age}
@@ -142,7 +416,7 @@ export function MedicalProfileScreen({ child, token, go, onSaved, showToast, unr
             />
 
             {/* Disability Classification Dropdown Trigger (Table 1.7) */}
-            <Text style={[styles.label, isDark && { color: colors.text }]}>Disability Classification (Dropdown)</Text>
+            <Text style={[styles.label, isDark && { color: colors.text }]}>{t('disabilityDropdownLabel')}</Text>
             <Pressable
               onPress={() => setPickerOpen(true)}
               accessibilityRole="button"
@@ -190,11 +464,11 @@ export function MedicalProfileScreen({ child, token, go, onSaved, showToast, unr
             </View>
 
             <Field
-              label="Custom / Specific Diagnosis"
+              label={t('customDiagnosisLabel')}
               value={form.disability}
               onChangeText={set('disability')}
               error={errors.disability}
-              placeholder="Or type specific condition..."
+              placeholder={lang === 'Filipino' ? 'O i-type ang tiyak na kondisyon...' : 'Or type specific condition...'}
               style={{ marginTop: 4 }}
             />
           </SectionCard>
@@ -207,7 +481,7 @@ export function MedicalProfileScreen({ child, token, go, onSaved, showToast, unr
               value={form.allergies}
               onChangeText={set('allergies')}
               multiline
-              placeholder="List food/drug allergies, or write 'None'"
+              placeholder={lang === 'Filipino' ? "Ilista ang mga alerdye sa pagkain/gamot, o ilagay ang 'Wala'" : "List food/drug allergies, or write 'None'"}
               leftIcon="alert-circle-outline"
             />
             <Field
@@ -215,11 +489,11 @@ export function MedicalProfileScreen({ child, token, go, onSaved, showToast, unr
               value={form.medications}
               onChangeText={set('medications')}
               multiline
-              placeholder="Medication name, dosage & schedule, or 'None'"
+              placeholder={lang === 'Filipino' ? "Pangalan ng gamot, dosis at iskedyul, o 'Wala'" : "Medication name, dosage & schedule, or 'None'"}
               leftIcon="medkit-outline"
             />
 
-            <Text style={[styles.label, isDark && { color: colors.text }]}>Quick-Add Communication & Sensory Tags</Text>
+            <Text style={[styles.label, isDark && { color: colors.text }]}>{t('quickCommTagsLabel')}</Text>
             <View style={[styles.chipWrap, { marginBottom: 10 }]}>
               {COMMUNICATION_TAGS.map((tag) => (
                 <Pressable
@@ -247,7 +521,7 @@ export function MedicalProfileScreen({ child, token, go, onSaved, showToast, unr
           <Text style={[styles.sectionHeading, isDark && { color: colors.brand }]}>{t('emergencyContact')}</Text>
           <SectionCard>
             <Field
-              label="Primary Guardian Phone"
+              label={t('primaryGuardianPhoneLabel')}
               value={form.guardian_phone}
               onChangeText={set('guardian_phone')}
               error={errors.guardian_phone}
@@ -256,15 +530,15 @@ export function MedicalProfileScreen({ child, token, go, onSaved, showToast, unr
               placeholder="+63 9XX XXX XXXX"
             />
             <Field
-              label="Backup Contact Name"
+              label={t('backupContactNameLabel')}
               value={form.emergency_contact_name}
               onChangeText={set('emergency_contact_name')}
               autoCapitalize="words"
               leftIcon="person-add-outline"
-              placeholder="Full name of secondary contact"
+              placeholder={lang === 'Filipino' ? 'Buong pangalan ng pangalawang contact' : 'Full name of secondary contact'}
             />
             <Field
-              label="Backup Contact Phone"
+              label={t('backupContactPhoneLabel')}
               value={form.emergency_contact_phone}
               onChangeText={set('emergency_contact_phone')}
               error={errors.emergency_contact_phone}
@@ -292,9 +566,9 @@ export function MedicalProfileScreen({ child, token, go, onSaved, showToast, unr
         <View style={styles.modalBackdrop}>
           <View style={[styles.modalSheet, isDark && { backgroundColor: colors.card }]}>
             <View style={styles.modalHandle} />
-            <Text style={[styles.modalTitle, isDark && { color: colors.text }]}>Select Disability Classification</Text>
+            <Text style={[styles.modalTitle, isDark && { color: colors.text }]}>{t('selectDisabilityTitle')}</Text>
             <Text style={[styles.modalBody, isDark && { color: colors.textSec }]}>
-              Choose the primary classification registered with the Parañaque CSN Center.
+              {t('selectDisabilitySub')}
             </Text>
             {DISABILITY_CHIPS.map((item) => {
               const selected = form.disability === item;

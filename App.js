@@ -34,22 +34,24 @@ import { AppProvider, useApp } from './src/context/AppContext';
  * ========================================================================== */
 
 function MainApp() {
-  const { settings, updateSettings, isDark, colors, t } = useApp();
+  const { settings, updateSettings, isDark, colors, t, setUserRole } = useApp();
   const [bootstrapping, setBootstrapping] = useState(true);
   const [screen, setScreen]               = useState('welcome');
   const [screenParams, setScreenParams]   = useState({});
   const [token, setToken]                 = useState(null);
   const [guardian, setGuardian]           = useState(null);
   const [child, setChild]                 = useState(null);
+  const [childrenList, setChildrenList]   = useState([]);
 
   const [gps, setGps]               = useState({ state: 'checking' }); // checking | active | denied
   const [coords, setCoords]         = useState(null);
   const [liveSharing, setLiveSharing] = useState(true);
 
-  const [emergency, setEmergency]         = useState(null);
-  const [triggering, setTriggering]       = useState(false);
-  const [triggerError, setTriggerError]   = useState('');
-  const [cancelling, setCancelling]       = useState(false);
+  const [emergency, setEmergency]                 = useState(null);
+  const [triggering, setTriggering]               = useState(false);
+  const [triggerError, setTriggerError]           = useState('');
+  const [cancelling, setCancelling]               = useState(false);
+  const [confirmingArrival, setConfirmingArrival] = useState(false);
 
   const [unread, setUnread]             = useState(0);
   const [seenIds, setSeenIds]           = useState([]);
@@ -63,11 +65,39 @@ function MainApp() {
     setScreen(next);
   }, []);
 
+  const applyProfilePayload = useCallback((data) => {
+    if (!data) return;
+    const profile = data.guardian || data.user || null;
+    const role = (profile && profile.role) ? profile.role : 'guardian';
+    setGuardian(profile);
+    setUserRole(role);
+
+    const list = Array.isArray(data.children)
+      ? data.children
+      : (data.child ? [data.child] : []);
+    setChildrenList(list);
+    setChild(data.child || (role !== 'teacher' && list.length > 0 ? list[0] : null));
+
+    if (Object.prototype.hasOwnProperty.call(data, 'active_emergency')) {
+      setEmergency((prev) => {
+        if (data.active_emergency) {
+          if (!prev || prev.id !== data.active_emergency.id) {
+            // New active emergency appeared (e.g., teacher alerted parent)
+            if (role !== 'teacher' && data.active_emergency.reported_by_role === 'teacher') {
+              showToast('🚨 Alert from CSN Center! Tap the emergency banner for details.', 'error');
+            }
+          }
+          return data.active_emergency;
+        }
+        return null;
+      });
+    }
+  }, [setUserRole, showToast]);
+
   /* ---- auth ---- */
   const onAuthed = async (data) => {
     setToken(data.token);
-    setGuardian(data.guardian || null);
-    setChild(data.child || null);
+    applyProfilePayload(data);
     if (data.token) {
       await saveStoredToken(data.token);
     }
@@ -84,7 +114,9 @@ function MainApp() {
     await removeStoredToken();
     setToken(null);
     setGuardian(null);
+    setUserRole('guardian');
     setChild(null);
+    setChildrenList([]);
     setEmergency(null);
     go('welcome');
   };
@@ -98,7 +130,9 @@ function MainApp() {
           if (isMounted) {
             setToken('dev-token');
             setGuardian(devState.guardian);
+            setUserRole(devState.guardian?.role || 'guardian');
             setChild(devState.child);
+            setChildrenList(devState.children || [devState.child]);
             go('dashboard');
           }
           return;
@@ -107,10 +141,9 @@ function MainApp() {
         const savedToken = await getStoredToken();
         if (savedToken && API_BASE_URL) {
           const data = await api('/me', { token: savedToken });
-          if (isMounted && data && data.guardian) {
+          if (isMounted && data && (data.guardian || data.user)) {
             setToken(savedToken);
-            setGuardian(data.guardian || null);
-            setChild(data.child || null);
+            applyProfilePayload(data);
             go('dashboard');
             return;
           }
@@ -125,7 +158,7 @@ function MainApp() {
     return () => {
       isMounted = false;
     };
-  }, [go]);
+  }, [go, applyProfilePayload, setUserRole]);
 
   /* ---- GPS permission + live position on Dashboard & Location screens ---- */
   const refreshGps = useCallback(async () => {
@@ -178,17 +211,38 @@ function MainApp() {
     };
   }, [screen]);
 
-  /* ---- unread announcements count (dashboard bell & inbox badge) ---- */
+  /* ---- unread announcements count & live /me sync (detects teacher-triggered alerts for parents) ---- */
   useEffect(() => {
-    if (!token) return;
-    api('/announcements', { token })
-      .then((d) => {
-        const list = (d && d.announcements) || [];
-        const activeList = list.filter((n) => !dismissedIds.includes(n.id));
-        setUnread(activeList.filter((n) => !seenIds.includes(n.id)).length);
-      })
-      .catch(() => {});
-  }, [screen, token, seenIds, dismissedIds]);
+    if (!token) return undefined;
+    let active = true;
+    const syncInboxAndProfile = () => {
+      api('/announcements', { token })
+        .then((d) => {
+          if (!active) return;
+          const list = (d && d.announcements) || [];
+          const activeList = list.filter((n) => !dismissedIds.includes(n.id));
+          setUnread(activeList.filter((n) => !seenIds.includes(n.id)).length);
+        })
+        .catch(() => {});
+
+      if (screen !== 'active') {
+        api('/me', { token })
+          .then((d) => {
+            if (active && d && (d.guardian || d.user)) {
+              applyProfilePayload(d);
+            }
+          })
+          .catch(() => {});
+      }
+    };
+
+    syncInboxAndProfile();
+    const timer = setInterval(syncInboxAndProfile, POLL_INTERVAL_MS);
+    return () => {
+      active = false;
+      clearInterval(timer);
+    };
+  }, [screen, token, seenIds, dismissedIds, applyProfilePayload]);
 
   const onMarkRead = useCallback((ids) => {
     setSeenIds((prev) => {
@@ -208,6 +262,9 @@ function MainApp() {
     const urgency = isObj && payload.urgency ? payload.urgency : 'high';
     const message = isObj && payload.message ? payload.message : '';
     const shareLoc = isObj && typeof payload.shareLocation === 'boolean' ? payload.shareLocation : true;
+    const childId = isObj && payload.childId ? payload.childId : null;
+    const facilityRoom = isObj && payload.facilityRoom ? payload.facilityRoom : null;
+    const explicitLocation = isObj && payload.location ? payload.location : null;
 
     setLiveSharing(shareLoc);
     setTriggerError('');
@@ -227,12 +284,15 @@ function MainApp() {
         method: 'POST',
         token,
         body: {
+          child_id: childId,
+          facility_room: facilityRoom,
+          location: explicitLocation,
           type,
           urgency,
           message,
           guardian_notes: message,
-          lat: shareLoc && position ? position.latitude : null,
-          lng: shareLoc && position ? position.longitude : null,
+          lat: shareLoc && position ? position.latitude : (facilityRoom ? 14.4997 : null),
+          lng: shareLoc && position ? position.longitude : (facilityRoom ? 120.9949 : null),
         },
       });
       setEmergency(data.emergency);
@@ -294,6 +354,27 @@ function MainApp() {
     };
   }, [isLive, liveSharing, emergencyId, token]);
 
+  const confirmResponderArrived = async (targetId = emergencyId) => {
+    if (!targetId) return false;
+    setConfirmingArrival(true);
+    try {
+      const data = await api(`/emergencies/${targetId}/arrived`, { method: 'POST', token });
+      const updated = (data && data.emergency) || {
+        ...emergency,
+        status: 'arrived',
+        responder_arrived_at: new Date().toISOString(),
+      };
+      setEmergency(updated);
+      showToast('Responder arrival confirmed! CSN Admin & Command Center notified.');
+      return true;
+    } catch (err) {
+      showToast(err.message, 'error');
+      return false;
+    } finally {
+      setConfirmingArrival(false);
+    }
+  };
+
   const cancelEmergency = async () => {
     setCancelling(true);
     try {
@@ -322,6 +403,13 @@ function MainApp() {
         <DashboardScreen
           guardian={guardian}
           child={child}
+          childrenList={childrenList}
+          activeEmergency={emergency}
+          onOpenActiveEmergency={() => go('active')}
+          onConfirmArrived={() => confirmResponderArrived(emergency?.id)}
+          confirmingArrival={confirmingArrival}
+          initialSelectedChildId={screenParams.selectedChildId || null}
+          initialOpenTrigger={Boolean(screenParams.openTriggerModal)}
           gps={gps}
           coords={coords}
           go={go}
@@ -360,6 +448,8 @@ function MainApp() {
           coords={coords}
           liveSharing={liveSharing}
           onToggleLiveSharing={() => setLiveSharing((v) => !v)}
+          onArrived={() => confirmResponderArrived(emergency?.id)}
+          confirmingArrival={confirmingArrival}
           onCancel={cancelEmergency}
           cancelling={cancelling}
           onDone={() => {
@@ -372,10 +462,13 @@ function MainApp() {
     case 'medical':
       content = (
         <MedicalProfileScreen
+          guardian={guardian}
           child={child}
+          childrenList={childrenList}
           token={token}
           go={go}
           onSaved={setChild}
+          onTriggerForChild={(student) => go('dashboard', { selectedChildId: student.id, openTriggerModal: true })}
           showToast={showToast}
           unread={unread}
         />

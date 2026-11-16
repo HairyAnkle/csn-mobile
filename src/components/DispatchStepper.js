@@ -9,14 +9,14 @@ import { C } from '../theme/colors';
 import { styles } from '../theme/styles';
 
 const DISPATCH_STEPS = [
-  { id: 1, label: 'Alert Sent',           icon: 'paper-plane',     doneStatuses: ['pending','responding','resolved','cancelled'] },
-  { id: 2, label: 'CSN Acknowledged',     icon: 'checkmark-circle',doneStatuses: ['responding','resolved','cancelled'] },
-  { id: 3, label: 'Responder En Route',   icon: 'car-sport',       doneStatuses: ['resolved'] },
-  { id: 4, label: 'Arrived',              icon: 'flag',            doneStatuses: ['resolved'] },
+  { id: 1, label: 'Alert Sent',           labelFil: 'Naipadala ang Alerto',     icon: 'paper-plane',     doneStatuses: ['pending','responding','arrived','resolved','cancelled'] },
+  { id: 2, label: 'CSN Acknowledged',     labelFil: 'Kinumpirma ng CSN',        icon: 'checkmark-circle',doneStatuses: ['responding','arrived','resolved','cancelled'] },
+  { id: 3, label: 'Responder En Route',   labelFil: 'Paparating ang Responder', icon: 'car-sport',       doneStatuses: ['arrived','resolved'] },
+  { id: 4, label: 'Arrived',              labelFil: 'Dumating na',              icon: 'flag',            doneStatuses: ['arrived','resolved'] },
 ];
 
 export function DispatchStepper({ status }) {
-  const { isDark, colors } = useApp();
+  const { isDark, colors, lang } = useApp();
   const blink = useAnimatedValue(1);
   useEffect(() => {
     const loop = Animated.loop(
@@ -65,7 +65,7 @@ export function DispatchStepper({ status }) {
                 isActive && { color: colors.brand, fontWeight: '800' },
               ]}
             >
-              {step.label}
+              {lang === 'Filipino' ? step.labelFil : step.label}
             </Text>
           </View>
         );

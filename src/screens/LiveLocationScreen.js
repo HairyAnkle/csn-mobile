@@ -1,6 +1,6 @@
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Platform,
@@ -22,7 +22,7 @@ import { fetchNearbyOsmEmergencyCenters } from '../services/emergencyCenters';
 import { C } from '../theme/colors';
 import { styles } from '../theme/styles';
 import { callEmergencyNumber, openAppSettings } from '../utils/device';
-import { calcDistanceKm, openExternalMap } from '../utils/geo';
+import { calcDistanceKm, useLocationName } from '../utils/geo';
 
 /* ============================================================================
  * SCREEN 6 — LIVE LOCATION SHARING (Table 1.6) & ACTIVE EMERGENCY DISPATCH
@@ -31,16 +31,19 @@ import { calcDistanceKm, openExternalMap } from '../utils/geo';
 /** Standalone Screen 6: Live Location Sharing (Table 1.6) */
 export function LiveLocationScreen({ child, gps, coords, liveSharing, onToggleLiveSharing, onRefreshGps, go, unread }) {
   const { isDark, colors, t, lang } = useApp();
+  const scrollRef = useRef(null);
   const [centers, setCenters]               = useState(NEARBY_EMERGENCY_CENTERS);
   const [selectedCenter, setSelectedCenter] = useState(NEARBY_EMERGENCY_CENTERS[0]);
+  const [navTrigger, setNavTrigger]         = useState(null);
   const [loadingOsm, setLoadingOsm]         = useState(false);
-  const [osmStatus, setOsmStatus]           = useState('Showing verified Parañaque emergency hubs');
+  const [osmStatus, setOsmStatus]           = useState('');
 
   const effectiveCoords = coords || DEFAULT_PARANAQUE_COORDS;
   const hasRealGps = gps.state === 'active' && !!coords;
 
   const lat = effectiveCoords.latitude;
   const lng = effectiveCoords.longitude;
+  const locationName = useLocationName(lat, lng);
 
   const applyOsmResult = useCallback((list) => {
     if (list) {
@@ -48,14 +51,16 @@ export function LiveLocationScreen({ child, gps, coords, liveSharing, onToggleLi
       const osmCount = list.filter((c) => c.isOsmLive).length;
       setOsmStatus(
         osmCount > 0
-          ? `Found ${osmCount} nearby emergency facilities`
-          : 'Showing verified Parañaque emergency hubs'
+          ? (lang === 'Filipino'
+              ? `May natagpuang ${osmCount} kalapit na pasilidad`
+              : `Found ${osmCount} nearby emergency facilities`)
+          : t('verifiedHubs')
       );
     } else {
-      setOsmStatus('Showing verified Parañaque emergency hubs');
+      setOsmStatus(t('verifiedHubs'));
     }
     setLoadingOsm(false);
-  }, []);
+  }, [lang, t]);
 
   const loadCenters = useCallback(
     () => fetchNearbyOsmEmergencyCenters(lat, lng).catch(() => null),
@@ -87,7 +92,7 @@ export function LiveLocationScreen({ child, gps, coords, liveSharing, onToggleLi
         <Text style={styles.innerHeaderTitle} accessibilityRole="header">{t('liveLocationTitle')}</Text>
       </View>
 
-      <ScrollView contentContainerStyle={styles.medScroll} showsVerticalScrollIndicator={false}>
+      <ScrollView ref={scrollRef} contentContainerStyle={styles.medScroll} showsVerticalScrollIndicator={false}>
 
         {/* Error Handling Banner if GPS is disabled, denied, or signal lost (Table 1.6) */}
         {!hasRealGps && (
@@ -96,22 +101,26 @@ export function LiveLocationScreen({ child, gps, coords, liveSharing, onToggleLi
             <View style={{ flex: 1 }}>
               <Text style={{ color: C.amberDark, fontSize: 14, fontWeight: '800' }}>
                 {gps.state === 'denied'
-                  ? 'GPS Permission Denied or Disabled'
-                  : 'Searching for High-Accuracy Satellite Lock…'}
+                  ? t('gpsWarningDenied')
+                  : t('gpsWarningSearching')}
               </Text>
               <Text style={{ color: colors.textSec, fontSize: 13, marginTop: 2, lineHeight: 18 }}>
                 {Platform.OS === 'web'
-                  ? 'Mobile browsers over HTTP LAN restrict hardware GPS. Showing Parañaque City fallback coordinates for testing.'
-                  : 'Please enable Location Services so CSN responders can track your exact position during an emergency.'}
+                  ? (lang === 'Filipino'
+                      ? 'Pinaghihigpitan ng mga mobile browser sa HTTP LAN ang hardware GPS. Ipinapakita ang fallback na lokasyon sa Parañaque City.'
+                      : 'Mobile browsers over HTTP LAN restrict hardware GPS. Showing Parañaque City fallback location for testing.')
+                  : (lang === 'Filipino'
+                      ? 'Pakibuksan ang Location Services upang makita ng mga CSN responder ang iyong eksaktong lugar sa oras ng emergency.'
+                      : 'Please enable Location Services so CSN responders can track your exact position during an emergency.')}
               </Text>
               <View style={[styles.row, { marginTop: 8, gap: 10 }]}>
                 <Pressable onPress={onRefreshGps} style={styles.gpsRetryBtn}>
                   <Ionicons name="refresh" size={14} color={C.white} style={{ marginRight: 4 }} />
-                  <Text style={{ color: C.white, fontSize: 12, fontWeight: '700' }}>Retry GPS Signal</Text>
+                  <Text style={{ color: C.white, fontSize: 12, fontWeight: '700' }}>{t('gpsRetryBtn')}</Text>
                 </Pressable>
                 {Platform.OS !== 'web' && (
                   <Pressable onPress={openAppSettings} style={[styles.gpsRetryBtn, { backgroundColor: C.white, borderWidth: 1, borderColor: C.amberDark }]}>
-                    <Text style={{ color: C.amberDark, fontSize: 12, fontWeight: '700' }}>Open Settings</Text>
+                    <Text style={{ color: C.amberDark, fontSize: 12, fontWeight: '700' }}>{t('openSettingsShort')}</Text>
                   </Pressable>
                 )}
               </View>
@@ -119,7 +128,7 @@ export function LiveLocationScreen({ child, gps, coords, liveSharing, onToggleLi
           </View>
         )}
 
-        {/* Live Location Toggle Card (Table 1.6: Start / Stop real-time coordinate streaming) */}
+        {/* Live Location Toggle Card (Table 1.6: Start / Stop real-time location sharing) */}
         <SectionCard>
           <View style={[styles.row, { justifyContent: 'space-between' }]}>
             <View style={[styles.row, { flex: 1, marginRight: 12 }]}>
@@ -142,7 +151,7 @@ export function LiveLocationScreen({ child, gps, coords, liveSharing, onToggleLi
                 <Text style={{ color: colors.textSec, fontSize: 13, marginTop: 2 }}>
                   {liveSharing
                     ? t('coordDesc')
-                    : 'Turn on to stream your real-time location to CSN responders.'}
+                    : t('coordDescOff')}
                 </Text>
               </View>
             </View>
@@ -159,12 +168,12 @@ export function LiveLocationScreen({ child, gps, coords, liveSharing, onToggleLi
           </View>
 
           <View style={[styles.coordBox, isDark && { backgroundColor: colors.bg, borderColor: colors.border }]}>
-            <View style={{ flex: 1 }}>
+            <View style={{ flex: 1, marginRight: 10 }}>
               <Text style={{ color: colors.muted, fontSize: 11, fontWeight: '700', textTransform: 'uppercase' }}>
                 {t('currentCoords')}
               </Text>
-              <Text style={[styles.coordText, isDark && { color: colors.text }]}>
-                {effectiveCoords.latitude.toFixed(5)}° N, {effectiveCoords.longitude.toFixed(5)}° E
+              <Text style={[styles.coordText, { fontSize: 14, lineHeight: 19, marginTop: 2 }, isDark && { color: colors.text }]}>
+                {locationName}
               </Text>
             </View>
             <PrimaryButton
@@ -186,6 +195,8 @@ export function LiveLocationScreen({ child, gps, coords, liveSharing, onToggleLi
           selectedCenter={selectedCenter}
           onSelectCenter={setSelectedCenter}
           childName={child && child.name}
+          locationName={locationName}
+          navigationTrigger={navTrigger}
         />
 
         {/* Nearby Emergency Centers List (Parañaque Hubs + Live OpenStreetMap Overpass Results) */}
@@ -194,7 +205,7 @@ export function LiveLocationScreen({ child, gps, coords, liveSharing, onToggleLi
             <Text style={[styles.sectionHeading, { marginBottom: 2, marginTop: 0 }, isDark && { color: colors.brand }]}>
               {t('nearbyCenters')} ({centers.length})
             </Text>
-            <Text style={{ color: colors.textSec, fontSize: 12 }}>{osmStatus}</Text>
+            <Text style={{ color: colors.textSec, fontSize: 12 }}>{osmStatus || t('verifiedHubs')}</Text>
           </View>
           <Pressable
             onPress={discoverNearbyViaOsm}
@@ -291,7 +302,11 @@ export function LiveLocationScreen({ child, gps, coords, liveSharing, onToggleLi
                   <Text style={{ color: C.white, fontSize: 12, fontWeight: '700' }}>{t('callBtn')}</Text>
                 </Pressable>
                 <Pressable
-                  onPress={() => openExternalMap(center.latitude, center.longitude, center.name)}
+                  onPress={() => {
+                    setSelectedCenter(center);
+                    setNavTrigger({ center, timestamp: Date.now() });
+                    scrollRef.current?.scrollTo?.({ y: 0, animated: true });
+                  }}
                   accessibilityRole="button"
                   style={[styles.facilityActionBtn, { backgroundColor: isDark ? colors.brandLight : C.brandLight }]}
                 >

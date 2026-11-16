@@ -14,7 +14,6 @@ import {
 } from 'firebase/auth';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as WebBrowser from 'expo-web-browser';
-import * as Crypto from 'expo-crypto';
 import { Platform } from 'react-native';
 
 try {
@@ -127,24 +126,88 @@ export const GOOGLE_IOS_REDIRECT_URI = 'com.googleusercontent.apps.967210951869-
 export const GOOGLE_WEB_CLIENT_ID = '967210951869-8d5gtflrnb1tqfdho2j2q8l9lk6ejpig.apps.googleusercontent.com';
 
 const PKCE_CHARSET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~';
+const B64_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+
+// Pure JavaScript SHA-256 implementation (avoids native module dependencies like ExpoCrypto)
+function sha256Bytes(ascii) {
+  function rightRotate(v, a) { return (v >>> a) | (v << (32 - a)); }
+  const mathPow = Math.pow, maxWord = mathPow(2, 32);
+  let i, j, words = [], hash = [], k = [], primeCounter = 0;
+  const isComposite = {};
+  for (let candidate = 2; primeCounter < 64; candidate++) {
+    if (!isComposite[candidate]) {
+      for (i = 0; i < 313; i += candidate) isComposite[i] = candidate;
+      hash[primeCounter] = (mathPow(candidate, 0.5) * maxWord) | 0;
+      k[primeCounter++] = (mathPow(candidate, 1 / 3) * maxWord) | 0;
+    }
+  }
+  hash = hash.slice(0, 8);
+  const asciiBitLength = ascii.length * 8;
+  ascii += '\x80';
+  while ((ascii.length % 64) - 56) ascii += '\x00';
+  for (i = 0; i < ascii.length; i++) {
+    j = ascii.charCodeAt(i);
+    words[i >> 2] |= j << ((3 - (i % 4)) * 8);
+  }
+  words[words.length] = (asciiBitLength / maxWord) | 0;
+  words[words.length] = asciiBitLength;
+  for (j = 0; j < words.length; ) {
+    const w = words.slice(j, (j += 16)), oldHash = hash;
+    hash = hash.slice(0, 8);
+    for (i = 0; i < 64; i++) {
+      const w15 = w[i - 15], w2 = w[i - 2], a = hash[0], e = hash[4];
+      const temp1 = hash[7] + (rightRotate(e, 6) ^ rightRotate(e, 11) ^ rightRotate(e, 25)) + ((e & hash[5]) ^ (~e & hash[6])) + k[i] + (w[i] = i < 16 ? w[i] : (w[i - 16] + (rightRotate(w15, 7) ^ rightRotate(w15, 18) ^ (w15 >>> 3)) + w[i - 7] + (rightRotate(w2, 17) ^ rightRotate(w2, 19) ^ (w2 >>> 10))) | 0);
+      const temp2 = (rightRotate(a, 2) ^ rightRotate(a, 13) ^ rightRotate(a, 22)) + ((a & hash[1]) ^ (a & hash[2]) ^ (hash[1] & hash[2]));
+      hash = [(temp1 + temp2) | 0].concat(hash);
+      hash[4] = (hash[4] + temp1) | 0;
+    }
+    for (i = 0; i < 8; i++) hash[i] = (hash[i] + oldHash[i]) | 0;
+  }
+  const bytes = [];
+  for (i = 0; i < 8; i++) {
+    for (j = 3; j >= 0; j--) bytes.push((hash[i] >> (j * 8)) & 255);
+  }
+  return bytes;
+}
+
+function bytesToBase64Url(bytes) {
+  let b64 = '', i = 0, len = bytes.length;
+  for (; i + 2 < len; i += 3) {
+    b64 += B64_CHARS[bytes[i] >> 2];
+    b64 += B64_CHARS[((bytes[i] & 3) << 4) | (bytes[i + 1] >> 4)];
+    b64 += B64_CHARS[((bytes[i + 1] & 15) << 2) | (bytes[i + 2] >> 6)];
+    b64 += B64_CHARS[bytes[i + 2] & 63];
+  }
+  if (i < len) {
+    b64 += B64_CHARS[bytes[i] >> 2];
+    if (i + 1 < len) {
+      b64 += B64_CHARS[((bytes[i] & 3) << 4) | (bytes[i + 1] >> 4)];
+      b64 += B64_CHARS[(bytes[i + 1] & 15) << 2];
+    } else {
+      b64 += B64_CHARS[(bytes[i] & 3) << 4];
+    }
+  }
+  return b64.replace(/\+/g, '-').replace(/\//g, '_');
+}
 
 /**
  * Generate RFC 7636 compliant PKCE code_verifier and code_challenge.
  */
 export async function generatePKCECodes() {
-  const bytes = Crypto.getRandomValues(new Uint8Array(64));
   let codeVerifier = '';
-  for (let i = 0; i < bytes.length; i++) {
-    codeVerifier += PKCE_CHARSET[bytes[i] % PKCE_CHARSET.length];
+  if (typeof globalThis.crypto?.getRandomValues === 'function') {
+    const bytes = globalThis.crypto.getRandomValues(new Uint8Array(64));
+    for (let i = 0; i < bytes.length; i++) {
+      codeVerifier += PKCE_CHARSET[bytes[i] % PKCE_CHARSET.length];
+    }
+  } else {
+    for (let i = 0; i < 64; i++) {
+      codeVerifier += PKCE_CHARSET[Math.floor(Math.random() * PKCE_CHARSET.length)];
+    }
   }
 
-  const rawBase64 = await Crypto.digestStringAsync(
-    Crypto.CryptoDigestAlgorithm.SHA256,
-    codeVerifier,
-    { encoding: Crypto.CryptoEncoding.BASE64 }
-  );
-
-  const codeChallenge = rawBase64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  const hashBytes = sha256Bytes(codeVerifier);
+  const codeChallenge = bytesToBase64Url(hashBytes);
   return { codeVerifier, codeChallenge };
 }
 
@@ -177,29 +240,11 @@ export function parseAuthUrlParams(url) {
 }
 
 /**
- * Sign in with Google:
- * 1. Web: native Firebase signInWithPopup.
- * 2. Mobile (iOS / Android in Expo Go):
- *    Direct RFC 8252 Authorization Code Flow with PKCE using the official native iOS Client ID.
- *    Redirects straight into the app (no web iframes, no sessionStorage, zero 'missing initial state' errors).
- *    Exchanges code for Google id_token and authenticates natively via signInWithCredential.
+ * Build a PKCE Google OAuth 2.0 session (authUrl + codeVerifier).
  */
-export async function firebaseGoogleSignIn() {
-  if (Platform.OS === 'web') {
-    const provider = new GoogleAuthProvider();
-    provider.setCustomParameters({ prompt: 'select_account' });
-    const userCredential = await signInWithPopup(auth, provider);
-    const idToken = await userCredential.user.getIdToken(true);
-    return {
-      user: userCredential.user,
-      idToken,
-    };
-  }
-
-  // 1. Generate cryptographic PKCE verifier & challenge
+export async function createGoogleOAuthSession() {
   const { codeVerifier, codeChallenge } = await generatePKCECodes();
 
-  // 2. Build Google OAuth authorization URL with select_account
   const authUrl =
     `https://accounts.google.com/o/oauth2/v2/auth?` +
     `client_id=${encodeURIComponent(GOOGLE_IOS_CLIENT_ID)}` +
@@ -210,34 +255,33 @@ export async function firebaseGoogleSignIn() {
     `&code_challenge_method=S256` +
     `&prompt=select_account`;
 
-  // 3. Open native authentication session
-  const authResult = await WebBrowser.openAuthSessionAsync(authUrl, GOOGLE_IOS_REDIRECT_URI, {
-    preferEphemeralSession: false,
-    showInRecents: true,
-  });
+  return {
+    authUrl,
+    codeVerifier,
+    redirectUri: GOOGLE_IOS_REDIRECT_URI,
+  };
+}
 
-  if (authResult.type === 'cancel' || authResult.type === 'dismiss') {
-    const err = new Error('Google Sign-In was cancelled.');
-    err.code = 'auth/popup-closed-by-user';
-    throw err;
-  }
-
-  if (authResult.type !== 'success' || !authResult.url) {
-    throw new Error('Google sign-in could not be completed.');
-  }
-
-  // 4. Extract authorization code from Google's redirect response
-  const params = parseAuthUrlParams(authResult.url);
+/**
+ * Complete Google OAuth 2.0 PKCE flow using the redirected URL containing ?code=...
+ */
+export async function completeGoogleSignInWithRedirectUrl(redirectedUrl, codeVerifier) {
+  const params = parseAuthUrlParams(redirectedUrl);
   const code = params.code;
 
   if (!code) {
+    if (params.error === 'access_denied') {
+      const err = new Error('Google Sign-In was cancelled.');
+      err.code = 'auth/popup-closed-by-user';
+      throw err;
+    }
     if (params.error) {
       throw new Error(`Google Sign-In error: ${params.error_description || params.error}`);
     }
     throw new Error('Authorization code was not returned by Google.');
   }
 
-  // 5. Exchange authorization code for Google ID token and access token
+  // Exchange authorization code for Google ID token and access token
   const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -257,7 +301,7 @@ export async function firebaseGoogleSignIn() {
     throw new Error(`Google Token Exchange: ${msg}`);
   }
 
-  // 6. Sign in natively to Firebase Auth using official GoogleAuthProvider credential
+  // Sign in natively to Firebase Auth using official GoogleAuthProvider credential
   const credential = GoogleAuthProvider.credential(tokenData.id_token);
   const userCredential = await signInWithCredential(auth, credential);
   const firebaseIdToken = await userCredential.user.getIdToken(true);
@@ -266,6 +310,48 @@ export async function firebaseGoogleSignIn() {
     user: userCredential.user,
     idToken: firebaseIdToken || tokenData.id_token,
   };
+}
+
+/**
+ * Sign in with Google:
+ * 1. Web: native Firebase signInWithPopup.
+ * 2. Mobile (iOS / Standalone APK):
+ *    Direct RFC 8252 Authorization Code Flow with PKCE using the official native iOS Client ID.
+ *    Exchanges code for Google id_token and authenticates natively via signInWithCredential.
+ */
+export async function firebaseGoogleSignIn() {
+  if (Platform.OS === 'web') {
+    const provider = new GoogleAuthProvider();
+    provider.setCustomParameters({ prompt: 'select_account' });
+    const userCredential = await signInWithPopup(auth, provider);
+    const idToken = await userCredential.user.getIdToken(true);
+    return {
+      user: userCredential.user,
+      idToken,
+    };
+  }
+
+  // 1. Build PKCE session
+  const { authUrl, codeVerifier, redirectUri } = await createGoogleOAuthSession();
+
+  // 2. Open native authentication session
+  const authResult = await WebBrowser.openAuthSessionAsync(authUrl, redirectUri, {
+    preferEphemeralSession: false,
+    showInRecents: true,
+  });
+
+  if (authResult.type === 'cancel' || authResult.type === 'dismiss') {
+    const err = new Error('Google Sign-In was cancelled.');
+    err.code = 'auth/popup-closed-by-user';
+    throw err;
+  }
+
+  if (authResult.type !== 'success' || !authResult.url) {
+    throw new Error('Google sign-in could not be completed.');
+  }
+
+  // 3. Exchange code and sign in to Firebase
+  return await completeGoogleSignInWithRedirectUrl(authResult.url, codeVerifier);
 }
 
 /**

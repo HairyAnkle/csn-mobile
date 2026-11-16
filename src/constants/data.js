@@ -7,6 +7,18 @@ export const EMERGENCY_TYPES = [
   { key: 'general',         label: 'General Emergency',        shortLabel: 'General',            icon: 'warning' },
 ];
 
+export const EMERGENCY_TYPES_FIL = [
+  { key: 'medical_crisis',  label: 'Medikal na Krisis',            shortLabel: 'Medikal',             icon: 'medkit' },
+  { key: 'seizure_sensory', label: 'Kombulsyon / Sensory Overload', shortLabel: 'Kombulsyon',         icon: 'pulse' },
+  { key: 'fire',            label: 'Emergency sa Sunog',           shortLabel: 'Sunog',               icon: 'flame' },
+  { key: 'wandering',       label: 'Paglalagalag / Nawawala',      shortLabel: 'Nawawala',            icon: 'walk' },
+  { key: 'general',         label: 'Pangkalahatang Emergency',     shortLabel: 'Pangkalahatan',       icon: 'warning' },
+];
+
+export function getEmergencyTypes(lang = 'English') {
+  return lang === 'Filipino' ? EMERGENCY_TYPES_FIL : EMERGENCY_TYPES;
+}
+
 // Table 1.7 — Disability Classifications (Dropdown & Chips)
 export const DISABILITY_CHIPS = [
   'Autism Spectrum Disorder (ASD)',
@@ -74,9 +86,36 @@ export const NEARBY_EMERGENCY_CENTERS = [
   },
 ];
 
+export const CSN_FACILITY_ROOMS = [
+  'Sensory Integration Room',
+  'Occupational Therapy (OT) Room',
+  'Physical Therapy (PT) Room',
+  'Speech & Language Therapy Room',
+  'SPED Classroom 1',
+  'SPED Classroom 2',
+  'Play & Motor Activity Area',
+  'CSN Medical Clinic / Triage',
+  'Main Lobby / Reception Area',
+  'Outdoor Courtyard / Playground',
+];
+
 export const STATUS_STYLE = {
   pending:    { label: 'Pending',      bg: '#FEF3C7', fg: '#92400E' },
   responding: { label: 'Acknowledged / Responding', bg: '#DBEAFE', fg: '#1E40AF' },
+  arrived:    { label: 'Responder Arrived ✓', bg: '#D1FAE5', fg: '#065F46' },
   resolved:   { label: 'Resolved',     bg: '#D1FAE5', fg: '#065F46' },
   cancelled:  { label: 'Cancelled',    bg: '#E5E7EB', fg: '#374151' },
 };
+
+export const STATUS_STYLE_FIL = {
+  pending:    { label: 'Naghihintay',               bg: '#FEF3C7', fg: '#92400E' },
+  responding: { label: 'Kinumpirma / Paparating',   bg: '#DBEAFE', fg: '#1E40AF' },
+  arrived:    { label: 'Dumating na ang Responder ✓', bg: '#D1FAE5', fg: '#065F46' },
+  resolved:   { label: 'Nalutas na',                bg: '#D1FAE5', fg: '#065F46' },
+  cancelled:  { label: 'Kinansela',                 bg: '#E5E7EB', fg: '#374151' },
+};
+
+export function getStatusStyle(status, lang = 'English') {
+  const map = lang === 'Filipino' ? STATUS_STYLE_FIL : STATUS_STYLE;
+  return map[status] || { label: status || 'Unknown', bg: '#E5E7EB', fg: '#374151' };
+}

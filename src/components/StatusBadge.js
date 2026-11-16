@@ -1,10 +1,12 @@
 import { Text, View } from 'react-native';
 
-import { STATUS_STYLE } from '../constants/data';
+import { useApp } from '../context/AppContext';
+import { getStatusStyle } from '../constants/data';
 import { styles } from '../theme/styles';
 
 export function StatusBadge({ status }) {
-  const s = STATUS_STYLE[status] || { label: status || 'Unknown', bg: '#E5E7EB', fg: '#374151' };
+  const { lang } = useApp();
+  const s = getStatusStyle(status, lang);
   return (
     <View style={[styles.badge, { backgroundColor: s.bg }]}>
       <Text style={[styles.badgeText, { color: s.fg }]}>{s.label}</Text>

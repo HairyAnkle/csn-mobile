@@ -12,6 +12,9 @@ export const AppContext = createContext({
   colors: LIGHT_COLORS,
   lang: 'English',
   pushNotifications: true,
+  userRole: 'guardian',
+  isTeacher: false,
+  setUserRole: () => {},
   t: (key) => key,
   updateSettings: () => {},
 });
@@ -22,6 +25,7 @@ export function AppProvider({ children }) {
     language: 'English',
     pushNotifications: true,
   });
+  const [userRole, setUserRole] = useState('guardian');
 
   // Load saved settings from AsyncStorage on startup
   useEffect(() => {
@@ -61,6 +65,9 @@ export function AppProvider({ children }) {
         colors,
         lang,
         pushNotifications: settings.pushNotifications !== false,
+        userRole,
+        isTeacher: userRole === 'teacher',
+        setUserRole,
         updateSettings,
         t,
       }}

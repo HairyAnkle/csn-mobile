@@ -20,7 +20,7 @@ import { BottomTabBar } from '../components/BottomTabBar';
 import { PrimaryButton } from '../components/PrimaryButton';
 import { SectionCard } from '../components/SectionCard';
 import { CSN_HOTLINE, CSN_SUPPORT_EMAIL, EMERGENCY_NUMBER, POLL_INTERVAL_MS } from '../constants/app';
-import { CHAT_QUICK_TOPICS, FAQ_ITEMS, SAFETY_RESOURCES, VIDEO_TUTORIALS } from '../constants/supportContent';
+import { getSupportContent } from '../constants/supportContent';
 import { api } from '../services/api';
 import { generateSmartSupportReply } from '../services/devMock';
 import { C } from '../theme/colors';
@@ -65,6 +65,7 @@ async function fetchSupportMessages(token) {
 
 export function SupportScreen({ token, guardian, child, go, onLogout, showToast, unread }) {
   const { isDark, colors, t, lang } = useApp();
+  const { faqs, resources, videos, quickTopics } = getSupportContent(lang);
   const [catTab, setCatTab]           = useState('faqs'); // 'faqs' | 'resources' | 'videos'
   const [openFaqIdx, setOpenFaqIdx]   = useState(0);
   const [activeVideo, setActiveVideo] = useState(null);
@@ -79,7 +80,9 @@ export function SupportScreen({ token, guardian, child, go, onLogout, showToast,
       id: 'm1',
       sender: 'support',
       sender_name: 'Parañaque CSN Desk',
-      text: 'Mabuhay! Welcome to Parañaque CSN Center Live Support (Col. E. de Leon St., Brgy. Sto. Niño). How can we assist you and your child today?',
+      text: lang === 'Filipino'
+        ? 'Mabuhay! Maligayang pagdating sa Parañaque CSN Center Live Support (Col. E. de Leon St., Brgy. Sto. Niño). Paano kami makakatulong sa inyo at sa inyong anak ngayon?'
+        : 'Mabuhay! Welcome to Parañaque CSN Center Live Support (Col. E. de Leon St., Brgy. Sto. Niño). How can we assist you and your child today?',
       time: 'Online',
     },
   ]);
@@ -227,7 +230,7 @@ export function SupportScreen({ token, guardian, child, go, onLogout, showToast,
           style={styles.headerActionBtn}
         >
           <Ionicons name="settings-outline" size={16} color={C.white} style={{ marginRight: 4 }} />
-          <Text style={{ color: C.white, fontSize: 12, fontWeight: '700' }}>Settings</Text>
+          <Text style={{ color: C.white, fontSize: 12, fontWeight: '700' }}>{t('settingsShort')}</Text>
         </Pressable>
       </View>
 
@@ -264,8 +267,8 @@ export function SupportScreen({ token, guardian, child, go, onLogout, showToast,
             style={[styles.contactQuickCard, { backgroundColor: C.critical }]}
           >
             <Ionicons name="call" size={22} color={C.white} />
-            <Text style={styles.contactQuickTitle}>Call {EMERGENCY_NUMBER}</Text>
-            <Text style={styles.contactQuickSub}>24/7 Emergency</Text>
+            <Text style={styles.contactQuickTitle}>{t('callEmergencyBtn')}</Text>
+            <Text style={styles.contactQuickSub}>{t('emergency247')}</Text>
           </Pressable>
 
           <Pressable
@@ -274,7 +277,7 @@ export function SupportScreen({ token, guardian, child, go, onLogout, showToast,
             style={[styles.contactQuickCard, { backgroundColor: C.brand }]}
           >
             <Ionicons name="call-outline" size={22} color={C.white} />
-            <Text style={styles.contactQuickTitle}>CSN Hotline</Text>
+            <Text style={styles.contactQuickTitle}>{t('csnHotlineTitle')}</Text>
             <Text style={styles.contactQuickSub}>{CSN_HOTLINE}</Text>
           </Pressable>
         </View>
@@ -287,7 +290,7 @@ export function SupportScreen({ token, guardian, child, go, onLogout, showToast,
           >
             <Ionicons name="mail-outline" size={20} color={colors.brand} style={{ marginRight: 8 }} />
             <View style={{ flex: 1 }}>
-              <Text style={{ color: colors.text, fontSize: 13, fontWeight: '800' }}>Email Support</Text>
+              <Text style={{ color: colors.text, fontSize: 13, fontWeight: '800' }}>{t('emailSupportTitle')}</Text>
               <Text style={{ color: colors.textSec, fontSize: 11 }} numberOfLines={1}>{CSN_SUPPORT_EMAIL}</Text>
             </View>
           </Pressable>
@@ -299,8 +302,8 @@ export function SupportScreen({ token, guardian, child, go, onLogout, showToast,
           >
             <Ionicons name="chatbubbles" size={20} color={colors.success} style={{ marginRight: 8 }} />
             <View style={{ flex: 1 }}>
-              <Text style={{ color: colors.success, fontSize: 13, fontWeight: '800' }}>Live Chat</Text>
-              <Text style={{ color: colors.success, fontSize: 11 }}>Chat with CSN Desk</Text>
+              <Text style={{ color: colors.success, fontSize: 13, fontWeight: '800' }}>{t('liveChatTitle')}</Text>
+              <Text style={{ color: colors.success, fontSize: 11 }}>{t('chatWithDeskSub')}</Text>
             </View>
           </Pressable>
         </View>
@@ -309,7 +312,7 @@ export function SupportScreen({ token, guardian, child, go, onLogout, showToast,
         {catTab === 'faqs' && (
           <>
             <Text style={[styles.sectionHeading, isDark && { color: colors.brand }]}>{t('faqHeading')}</Text>
-            {FAQ_ITEMS.map((item, idx) => {
+            {faqs.map((item, idx) => {
               const open = openFaqIdx === idx;
               return (
                 <Pressable
@@ -336,7 +339,7 @@ export function SupportScreen({ token, guardian, child, go, onLogout, showToast,
         {catTab === 'resources' && (
           <>
             <Text style={[styles.sectionHeading, isDark && { color: colors.brand }]}>{t('resourcesTab')}</Text>
-            {SAFETY_RESOURCES.map((res) => (
+            {resources.map((res) => (
               <SectionCard key={res.title} style={{ marginBottom: 12 }}>
                 <View style={[styles.row, { marginBottom: 8 }]}>
                   <View style={[styles.supportIconCircle, { backgroundColor: res.color + '18' }]}>
@@ -364,7 +367,7 @@ export function SupportScreen({ token, guardian, child, go, onLogout, showToast,
         {catTab === 'videos' && (
           <>
             <Text style={[styles.sectionHeading, isDark && { color: colors.brand }]}>{t('stepByStepVideos')}</Text>
-            {VIDEO_TUTORIALS.map((vid) => (
+            {videos.map((vid) => (
               <Pressable
                 key={vid.id}
                 onPress={() => setActiveVideo(vid)}
@@ -412,7 +415,7 @@ export function SupportScreen({ token, guardian, child, go, onLogout, showToast,
                 <View style={[styles.videoThumb, { borderRadius: 16, height: 150, marginBottom: 14 }]}>
                   <Ionicons name="videocam" size={44} color={C.white} />
                   <Text style={{ color: C.white, fontWeight: '800', marginTop: 8 }}>
-                    Interactive Tutorial Preview ({activeVideo.duration})
+                    {t('videoPreviewLabel')} ({activeVideo.duration})
                   </Text>
                 </View>
                 <Text style={[styles.modalTitle, isDark && { color: colors.text }]}>{activeVideo.title}</Text>
@@ -447,7 +450,7 @@ export function SupportScreen({ token, guardian, child, go, onLogout, showToast,
                     <Ionicons name="chatbubbles" size={20} color={colors.success} />
                   </View>
                   <View>
-                    <Text style={{ color: colors.text, fontSize: 17, fontWeight: '800' }}>CSN Support Live Chat</Text>
+                    <Text style={{ color: colors.text, fontSize: 17, fontWeight: '800' }}>{t('liveChatModalTitle')}</Text>
                     <Text style={{ color: colors.success, fontSize: 12, fontWeight: '600' }}>
                       ● Online — Parañaque CSN Help Desk {chatSynced ? '(Synced)' : ''}
                     </Text>
@@ -491,7 +494,7 @@ export function SupportScreen({ token, guardian, child, go, onLogout, showToast,
                 style={{ marginBottom: 10 }}
                 contentContainerStyle={{ gap: 6, paddingRight: 8 }}
               >
-                {CHAT_QUICK_TOPICS.map((topic) => (
+                {quickTopics.map((topic) => (
                   <Pressable
                     key={topic}
                     onPress={() => sendChatMessage(topic)}
@@ -560,7 +563,7 @@ export function SupportScreen({ token, guardian, child, go, onLogout, showToast,
                   <View style={[styles.chatBubble, styles.chatBubbleSupport, isDark && { backgroundColor: colors.bg, borderColor: colors.border, borderWidth: 1 }, { flexDirection: 'row', alignItems: 'center', gap: 8 }]}>
                     <ActivityIndicator size="small" color={colors.brand} />
                     <Text style={{ color: colors.textSec, fontSize: 13, fontStyle: 'italic' }}>
-                      CSN Social Welfare Coordinator is typing…
+                      {t('liveChatTyping')}
                     </Text>
                   </View>
                 )}
@@ -574,7 +577,7 @@ export function SupportScreen({ token, guardian, child, go, onLogout, showToast,
                     onSubmitEditing={() => sendChatMessage()}
                     returnKeyType="send"
                     blurOnSubmit={false}
-                    placeholder="Type your message to CSN Support..."
+                    placeholder={t('liveChatInputPlaceholder')}
                     placeholderTextColor={colors.muted}
                     style={[styles.inputInner, isDark && { color: colors.text }]}
                   />
