@@ -50,5 +50,9 @@
     "web": "expo start --web",
     "lint": "expo lint"
   },
+  "overrides": {
+    "@grpc/grpc-js": "^1.13.6",
+    "re2js": "^2.8.7"
+  },
   "private": true
 }
